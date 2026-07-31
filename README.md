@@ -35,8 +35,6 @@ Scripts are numbered in the order they should be run:
 09_main_regression.py          Produce Tables 3, 4, 5
 ```
 
-Note that 08 and 09 should be run after 10 (dependency order does not match numbering, for historical reasons).
-
 ## Setup
 
 Python 3.10 or later. Install dependencies:
@@ -92,6 +90,4 @@ The `output/` folder contains all tables and figures for the thesis:
 - `figure3_scatter_main.png` — equity share vs blackout days
 - `figure4_binary_features.png` — prevalence of policy features
 
-## Notes on the LLM extraction
 
-The extraction script uses OpenAI's GPT-4o-mini model. Results may differ slightly on repeated runs due to model stochasticity, but the integer-valued and boolean fields that enter the regressions are stable across runs. Manual verification of a subsample confirmed extraction quality; error categorization and recovery procedures are documented in `methodology_notes.docx`.
