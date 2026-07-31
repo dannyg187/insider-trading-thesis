@@ -1,12 +1,12 @@
 # Insider Trading Policies and Executive Compensation
 
-Bachelor thesis empirical pipeline. This repository contains the full Python code used to construct the analysis dataset and produce the regression tables and figures. Data files are excluded due to WRDS licensing restrictions; see the Data section below for how to obtain them.
+Bachelor thesis empirical pipeline. This repository contains the full Python code used to construct the analysis dataset and produce the regression tables and figures.
 
 ## Overview
 
 The empirical analysis tests whether firms with higher equity-based executive compensation impose more restrictive insider trading policies. Policy features are extracted from SEC EX-19 filings using an LLM-based text extraction pipeline. Compensation and firm-level controls come from WRDS (ExecComp, Compustat) and FactSet (Ownership Summary).
 
-Main finding: firms with higher all-executives equity intensity have blackout periods that start approximately five days earlier before quarter-end, with statistical significance at the 10% level after controlling for firm size, leverage, profitability, firm age, industry fixed effects, and institutional ownership. The CEO-only measure shows the same direction but is not statistically distinguishable from zero after industry controls.
+Main finding: firms with higher all-executives equity intensity have blackout periods that start approximately five days earlier before quarter-end, with statistical significance at the 10% level after controlling for firm size, leverage, profitability, firm age, industry fixed effects and institutional ownership. The CEO-only measure suggests the same relationship as before, but once we account for industry differences, the evidence is not strong enough to conclude that the effect is real.
 
 ## Data sources (not included in this repository)
 
@@ -14,8 +14,6 @@ Main finding: firms with higher all-executives equity intensity have blackout pe
 2. **ExecComp** — CEO and named-executive compensation data, WRDS.
 3. **Compustat Annual Fundamentals** — firm-level accounting variables, WRDS.
 4. **FactSet Ownership Summary** — market capitalization and institutional ownership data, WRDS.
-
-Reproducing this analysis requires a valid WRDS subscription and access to the specific tables above.
 
 ## Pipeline structure
 
@@ -33,46 +31,6 @@ Scripts are numbered in the order they should be run:
 10_add_factset_ownership.py    Merge FactSet Ownership Summary → analysis_v3.csv
 08_descriptive_stats.py        Produce Table 1, correlation matrix, figures
 09_main_regression.py          Produce Tables 3, 4, 5
-```
-
-## Setup
-
-Python 3.10 or later. Install dependencies:
-
-```
-pip install -r requirements.txt
-```
-
-Create a `.env` file in the project root with your OpenAI API key (needed only for scripts 01 and 01b):
-
-```
-OPENAI_API_KEY=sk-...
-```
-
-Place data files in the project root:
-
-```
-ex19_policies/*.htm          (folder with EX-19 HTML files)
-ex19_policies/ex19_metadata.csv
-execcomp_russell3000_2024.csv
-compustat_russell3000_2024.csv
-factset_ownership_summary_q4_2024.csv
-```
-
-Run the pipeline:
-
-```
-python 01_read_files.py
-python 01b_recover_missing.py
-python 02_merge_recovery.py
-python 03_dedup.py
-python 04_build_compensation.py
-python 05_merge_policy_comp.py
-python 06_build_compustat.py
-python 07_build_analysis_dataset.py
-python 10_add_factset_ownership.py
-python 08_descriptive_stats.py
-python 09_main_regression.py
 ```
 
 ## Outputs
