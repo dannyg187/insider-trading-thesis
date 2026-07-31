@@ -1,0 +1,56 @@
+# =====================================================================
+# API keys and secrets (CRITICAL — never commit these)
+# =====================================================================
+.env
+.env.*
+*.key
+credentials.json
+
+# =====================================================================
+# Data files (excluded due to WRDS licensing)
+# =====================================================================
+ex19_policies/
+*.csv
+!output/*.csv
+!requirements.txt
+
+# =====================================================================
+# Intermediate outputs (regenerable, not needed in the repo)
+# =====================================================================
+blackout_summary.csv
+blackout_summary_recovery.csv
+blackout_summary_final.csv
+blackout_summary_dedup.csv
+comp_summary.csv
+compustat_summary.csv
+analysis_v1.csv
+analysis_v2.csv
+analysis_v3.csv
+merge_report.txt
+to_rerun.txt
+
+# =====================================================================
+# Python virtual environment (machine-specific, always exclude)
+# =====================================================================
+thesis_env/
+venv/
+env/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# =====================================================================
+# IDE and OS files
+# =====================================================================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# =====================================================================
+# Jupyter notebooks (not used, but block just in case)
+# =====================================================================
+.ipynb_checkpoints/
+*.ipynb
