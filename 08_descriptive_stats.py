@@ -2,22 +2,27 @@
 """
 08_descriptive_stats.py — tables and figures for the Data section
 
-Uses analysis_v3.csv (with FactSet Ownership Summary variables merged in).
-Descriptive statistics are computed on the MAIN regression sample:
-firms with non-missing blackout_days, equity_share, and all main controls
-(including log_mktcap), which excludes REITs.
+Uses analysis_v3.csv. Descriptive statistics are computed on the main
+regression sample: firms with non-missing blackout_days, equity_share,
+and all main controls (log_mktcap, leverage_w, roa_w) — i.e. the sample
+used in Table 3.
+
+Change from previous version:
+    - Removed log(firm_age) from the required-variable list. Per professor's
+      feedback, log(firm_age) is no longer used as a control.
+    - Added CEO holdings variables to Table 1 (used in Table 6 extension).
 
 Input:
     analysis_v3.csv (from step 10)
 
 Outputs (./output/):
-    table1_summary_stats.csv         — Summary stats for the main sample
-    table2_correlation_matrix.csv    — Pearson correlations
-    table3_industry_breakdown.csv    — Firms per 1-digit SIC industry
-    figure1_distributions.png        — 6-panel histogram of key variables
-    figure2_industry_breakdown.png   — Bar chart of industries
-    figure3_scatter_main.png         — Scatter: equity_share vs blackout_days
-    figure4_binary_features.png      — Bar chart: % firms with each feature
+    table1_summary_stats.csv
+    table2_correlation_matrix.csv
+    table3_industry_breakdown.csv
+    figure1_distributions.png
+    figure2_industry_breakdown.png
+    figure3_scatter_main.png
+    figure4_binary_features.png
 
 Usage:
     python 08_descriptive_stats.py
@@ -52,16 +57,14 @@ def main() -> None:
               'requires_preclearance', 'prohibits_hedging']:
         df[c] = df[c].astype(str).str.lower().eq('true').astype(int)
 
-    # Main regression sample: firms with all variables for the main spec
-    # (log_mktcap-based, i.e. FactSet available -> excludes REITs)
+    # Main regression sample — matches Table 3 spec (no firm_age)
     main_required = ['equity_share', 'log_mktcap', 'leverage_w', 'roa_w',
-                     'log_firm_age', 'sic_1digit']
+                     'sic_1digit']
     reg = df.dropna(subset=['days'] + main_required).copy()
     print(f"Main regression sample: {len(reg)} firms")
-    print(f"(Firms with FactSet ownership summary AND all controls)")
 
     # ===================================================================
-    # TABLE 1 — Summary statistics on the main sample
+    # TABLE 1
     # ===================================================================
     summary_vars = [
         # Dependent variables
@@ -72,23 +75,25 @@ def main() -> None:
         # Compensation (main IVs)
         ('equity_share', 'CEO equity pay share'),
         ('equity_share_pooled', 'All-execs equity pay share (pooled)'),
+        # CEO holdings (Table 6 extension)
+        ('ceo_share_ownership', 'CEO share ownership (%)'),
+        ('ceo_holdings_musd', 'CEO holdings value (USD millions)'),
+        ('holdings_to_comp', 'CEO holdings / annual comp'),
         # Firm characteristics
         ('log_mktcap', 'Log(market cap, USD millions)'),
         ('mktcap', 'Market cap (USD millions)'),
-        ('log_at', 'Log(total assets)'),
+        ('log_at', 'Log(total assets) [robustness]'),
         ('leverage_w', 'Leverage (winsorized)'),
         ('roa_w', 'ROA (winsorized)'),
-        ('log_firm_age', 'Log(firm age + 1)'),
         # Governance / institutional ownership
         ('io', 'Institutional ownership (%)'),
         ('ibh_5pct', 'Blockholder ownership (5%+)'),
         ('top5', 'Top-5 investor ownership'),
         ('herf', 'Herfindahl concentration index'),
         ('nbr_firms', 'Number of institutional owners'),
-        # CEO characteristics
+        # CEO demographics
         ('ceo_age', 'CEO age'),
         ('ceo_tenure_years', 'CEO tenure (years)'),
-        ('ceo_share_ownership', 'CEO share ownership (%)'),
     ]
     rows = []
     for v, label in summary_vars:
@@ -114,11 +119,12 @@ def main() -> None:
     print(table1.to_string(index=False))
 
     # ===================================================================
-    # TABLE 2 — Correlation matrix
+    # TABLE 2 — correlations
     # ===================================================================
-    corr_vars = ['days', 'equity_share', 'equity_share_pooled', 'log_mktcap',
-                 'log_at', 'leverage_w', 'roa_w', 'log_firm_age', 'io',
-                 'ibh_5pct', 'has_recurring_blackout', 'requires_preclearance',
+    corr_vars = ['days', 'equity_share', 'equity_share_pooled',
+                 'ceo_share_ownership', 'log_ceo_holdings', 'log_mktcap',
+                 'log_at', 'leverage_w', 'roa_w', 'io', 'ibh_5pct',
+                 'has_recurring_blackout', 'requires_preclearance',
                  'prohibits_hedging']
     corr_vars = [v for v in corr_vars if v in reg.columns]
     corr = reg[corr_vars].corr().round(3)
@@ -126,7 +132,7 @@ def main() -> None:
     print(f"\nTable 2 — Correlation matrix saved")
 
     # ===================================================================
-    # TABLE 3 — Industry breakdown
+    # TABLE 3 — industry
     # ===================================================================
     sic1_labels = {
         0: '0 — Agriculture/Forestry/Fishing',
@@ -186,7 +192,7 @@ def main() -> None:
     plt.close()
 
     # ===================================================================
-    # FIGURE 2 — Industry breakdown
+    # FIGURE 2 — industry breakdown
     # ===================================================================
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.bar(range(len(ind)), ind.values, color=color, edgecolor='white')
@@ -203,7 +209,7 @@ def main() -> None:
     plt.close()
 
     # ===================================================================
-    # FIGURE 3 — Scatter of equity_share vs blackout_days
+    # FIGURE 3 — scatter
     # ===================================================================
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.scatter(reg['equity_share'], reg['days'], s=15, alpha=0.4,
@@ -218,7 +224,7 @@ def main() -> None:
                 label=f'Linear fit (slope={coef[0]:+.2f})')
     ax.set_xlabel('CEO equity pay share')
     ax.set_ylabel('Days before quarter-end (blackout starts)')
-    ax.set_title('Equity pay share vs blackout timing (raw, no controls)')
+    ax.set_title('Equity pay share vs blackout timing (raw)')
     ax.legend()
     plt.tight_layout()
     plt.savefig(OUT_DIR / 'figure3_scatter_main.png',
@@ -226,7 +232,7 @@ def main() -> None:
     plt.close()
 
     # ===================================================================
-    # FIGURE 4 — Binary policy features
+    # FIGURE 4 — binary features
     # ===================================================================
     fig, ax = plt.subplots(figsize=(8, 4))
     bin_vars = [
