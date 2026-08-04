@@ -20,8 +20,6 @@ Overall the evidence provides qualified support for the "complements" view: equi
 3. **Compustat Annual Fundamentals** — firm-level accounting variables, WRDS.
 4. **FactSet Ownership Summary** — market capitalization and institutional ownership data, WRDS.
 
-Reproducing this analysis requires a valid WRDS subscription and access to the specific tables above.
-
 ## Pipeline structure
 
 Scripts are numbered by dependency order rather than strictly by execution order (see the run sequence below):
