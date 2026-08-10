@@ -1,7 +1,5 @@
 # Insider Trading Policies and Executive Compensation
 
-Bachelor thesis empirical pipeline. This repository contains the full Python code used to construct the analysis dataset and produce the regression tables and figures. Data files are excluded due to WRDS and SEC licensing restrictions; see the Data sources section below for how to obtain them.
-
 ## Overview
 
 The empirical analysis tests whether firms with higher equity-based executive compensation impose more restrictive insider trading policies. Policy features are extracted from SEC EX-19 filings using an LLM-based text extraction pipeline. Compensation and firm-level controls come from WRDS (ExecComp, Compustat) and FactSet (Ownership Summary).
@@ -21,8 +19,6 @@ Overall the evidence provides qualified support for the "complements" view: equi
 2. **ExecComp** — CEO and named-executive compensation data, WRDS.
 3. **Compustat Annual Fundamentals** — firm-level accounting variables, WRDS.
 4. **FactSet Ownership Summary** — market capitalization and institutional ownership data, WRDS.
-
-Reproducing this analysis requires a valid WRDS subscription and access to the specific tables above.
 
 ## Pipeline structure
 
@@ -47,46 +43,6 @@ Scripts are numbered by dependency order rather than strictly by execution order
 
 Note that 08 and 09 must be run *after* 10, because they rely on FactSet-derived variables (market capitalization, institutional ownership, and CEO holdings).
 
-## Setup
-
-Python 3.10 or later. Install dependencies:
-
-```
-pip install -r requirements.txt
-```
-
-Create a `.env` file in the project root with your OpenAI API key (needed only for scripts 01 and 01b):
-
-```
-OPENAI_API_KEY=sk-...
-```
-
-Place data files in the project root:
-
-```
-ex19_policies/*.htm
-ex19_policies/ex19_metadata.csv
-execcomp_russell3000_2024.csv
-compustat_russell3000_2024.csv
-factset_ownership_summary_q4_2024.csv
-```
-
-Run the pipeline in the following order:
-
-```
-python 01_read_files.py
-python 01b_recover_missing.py
-python 02_merge_recovery.py
-python 03_dedup.py
-python 04_build_compensation.py
-python 05_merge_policy_comp.py
-python 06_build_compustat.py
-python 07_build_analysis_dataset.py
-python 10_add_factset_ownership.py
-python 08_descriptive_stats.py
-python 09_main_regression.py
-```
-
 ## Outputs
 
 The `output/` folder contains all tables and figures for the thesis:
@@ -102,13 +58,3 @@ The `output/` folder contains all tables and figures for the thesis:
 - `figure2_industry_breakdown.png` — sample composition bar chart
 - `figure3_scatter_main.png` — equity share vs blackout days
 - `figure4_binary_features.png` — prevalence of policy features
-
-## Notes on the LLM extraction
-
-The extraction pipeline uses OpenAI's GPT-4o-mini model via the Chat Completions API. Results may differ slightly across runs due to model stochasticity, but the integer-valued and boolean fields that enter the regressions are stable in repeated runs. A subsample of extractions was verified against the underlying EX-19 texts; error categorization and recovery procedures are documented in the accompanying methodology document.
-
-## Attribution
-
-The base extraction script (`01_read_files.py`) is adapted from a template provided by the thesis supervisor. All other scripts, and the extensions to `01_read_files.py` (pre-clearance and hedging feature extraction), were written by the author for this thesis. All methodological decisions — hypothesis, model specification, robustness checks, and interpretation of results — are the author's own.
-
-Coding assistance (Anthropic Claude) was used for debugging and drafting scripts. All code was reviewed and tested by the author before use.
