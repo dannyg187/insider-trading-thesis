@@ -61,6 +61,18 @@ def main() -> None:
     main_required = ['equity_share', 'log_mktcap', 'leverage_w', 'roa_w',
                      'sic_1digit']
     reg = df.dropna(subset=['days'] + main_required).copy()
+
+    # Drop singleton industries so Table 1 describes exactly the sample
+    # used in the regressions. A singleton industry dummy perfectly
+    # predicts its one observation, which breaks HC3 standard errors;
+    # 09_main_regression.py drops these, so the descriptives must too.
+    counts = reg['sic_1digit'].value_counts()
+    keep = counts[counts >= 2].index
+    n_before = len(reg)
+    reg = reg[reg['sic_1digit'].isin(keep)].copy()
+    if n_before != len(reg):
+        print(f"Dropped {n_before - len(reg)} firm(s) in singleton industries")
+
     print(f"Main regression sample: {len(reg)} firms")
 
     # ===================================================================

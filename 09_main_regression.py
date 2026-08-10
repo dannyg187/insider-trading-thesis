@@ -74,6 +74,27 @@ def make_sic_dummies(series):
     ).astype(float)
 
 
+def drop_singleton_industries(m, min_firms=2):
+    """
+    Drop observations belonging to industries with fewer than `min_firms`
+    firms in the estimation sample.
+
+    A singleton industry dummy perfectly predicts its one observation,
+    giving that observation a leverage (hat) value of exactly 1.0. HC3
+    weights each observation's squared residual by 1/(1 - h_ii)^2, so a
+    leverage of 1.0 produces a division by zero and propagates infinite
+    standard errors through the entire covariance matrix.
+
+    Because a singleton contributes no within-group variation, dropping it
+    leaves all coefficient estimates unchanged; only the variance
+    calculation is affected. Dropping singleton fixed-effect groups is
+    standard practice in applied work for this reason.
+    """
+    counts = m['sic_1digit'].value_counts()
+    keep = counts[counts >= min_firms].index
+    return m[m['sic_1digit'].isin(keep)].copy()
+
+
 def build_table(rows, models, ind_fe_notes, sample_notes=None,
                 col_labels=None):
     ncols = len(models)
@@ -152,7 +173,7 @@ def main() -> None:
     print("="*82)
 
     req = ['days', 'equity_share'] + controls_main + ['sic_1digit']
-    m3 = df.dropna(subset=req).copy()
+    m3 = drop_singleton_industries(df.dropna(subset=req))
     y = m3['days']
     sic_d3 = make_sic_dummies(m3['sic_1digit'])
 
@@ -188,7 +209,7 @@ def main() -> None:
     r4_1 = r3_3
 
     req = ['days', 'equity_share'] + controls_main + ['sic_1digit', 'io']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['equity_share'] + controls_main + ['io']], sd], axis=1))
@@ -196,7 +217,7 @@ def main() -> None:
 
     req = ['days', 'equity_share'] + controls_main + ['sic_1digit',
                                                      'ibh_5pct']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['equity_share'] + controls_main + ['ibh_5pct']], sd],
@@ -204,7 +225,7 @@ def main() -> None:
     r4_3 = run_ols(m['days'], X)
 
     req = ['days', 'equity_share_pooled'] + controls_main + ['sic_1digit']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['equity_share_pooled'] + controls_main], sd], axis=1))
@@ -212,7 +233,7 @@ def main() -> None:
 
     controls_at = ['log_at', 'leverage_w', 'roa_w']
     req = ['days', 'equity_share'] + controls_at + ['sic_1digit']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['equity_share'] + controls_at], sd], axis=1))
@@ -246,7 +267,7 @@ def main() -> None:
     print("="*82)
 
     req = ['equity_share'] + controls_main + ['sic_1digit', 'restrict_score']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['equity_share'] + controls_main], sd], axis=1))
@@ -254,7 +275,7 @@ def main() -> None:
 
     req = ['equity_share_pooled'] + controls_main + ['sic_1digit',
                                                     'restrict_score']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['equity_share_pooled'] + controls_main], sd], axis=1))
@@ -262,7 +283,7 @@ def main() -> None:
 
     req = ['equity_share'] + controls_main + ['sic_1digit',
                                               'prohibits_hedging_i']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['equity_share'] + controls_main], sd], axis=1))
@@ -270,7 +291,7 @@ def main() -> None:
 
     req = ['equity_share'] + controls_main + ['sic_1digit',
                                               'requires_preclearance_i']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['equity_share'] + controls_main], sd], axis=1))
@@ -305,7 +326,7 @@ def main() -> None:
 
     # Column 1: CEO ownership (%) — raw
     req = ['days', 'ceo_share_ownership'] + controls_main + ['sic_1digit']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['ceo_share_ownership'] + controls_main], sd], axis=1))
@@ -313,7 +334,7 @@ def main() -> None:
 
     # Column 2: log(CEO holdings dollar value)
     req = ['days', 'log_ceo_holdings'] + controls_main + ['sic_1digit']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['log_ceo_holdings'] + controls_main], sd], axis=1))
@@ -321,7 +342,7 @@ def main() -> None:
 
     # Column 3: log(holdings / annual comp) — professor's scaled version
     req = ['days', 'log_holdings_to_comp'] + controls_main + ['sic_1digit']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['log_holdings_to_comp'] + controls_main], sd], axis=1))
@@ -329,7 +350,7 @@ def main() -> None:
 
     # Column 4: horse race — flow (equity_share) + stock (log_ceo_holdings)
     req = ['days', 'equity_share', 'log_ceo_holdings'] + controls_main + ['sic_1digit']
-    m = df.dropna(subset=req).copy()
+    m = drop_singleton_industries(df.dropna(subset=req))
     sd = make_sic_dummies(m['sic_1digit'])
     X = sm.add_constant(
         pd.concat([m[['equity_share', 'log_ceo_holdings'] + controls_main],
