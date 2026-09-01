@@ -1,0 +1,7 @@
+Assumption,Test,Statistic,p-value
+No multicollinearity,Max VIF (main regressors),1.207,
+Homoskedasticity,Breusch-Pagan,12.986,0.2942
+Homoskedasticity,White,52.733,0.3318
+Normality of errors,Jarque-Bera,2.139,0.3432
+Correct functional form,Ramsey RESET,0.055,0.8155
+No influential outliers,Max Cook's distance,0.0331,

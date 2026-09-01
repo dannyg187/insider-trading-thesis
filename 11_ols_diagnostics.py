@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-11_ols_diagnostics.py — test the OLS assumptions for the main specification
+11_ols_diagnostics.py — OLS assumption tests and inference detail
 
 Input:
     analysis_v3.csv
@@ -9,7 +9,7 @@ Outputs (./output/):
     table7_ols_diagnostics.txt / .csv  — diagnostic test results
     figure5_residual_diagnostics.png   — 4-panel residual plots
 
-Tests performed on the main specification (Table 3, column 3):
+PART A — assumption tests on the main specification (Table 3, column 3):
 
   1. No perfect multicollinearity     — variance inflation factors
   2. Homoskedasticity                 — Breusch-Pagan and White tests
@@ -20,6 +20,15 @@ Tests performed on the main specification (Table 3, column 3):
 Assumptions that cannot be tested with cross-sectional data are noted in
 the output: exogeneity of the regressors (zero conditional mean) is not
 directly testable and is discussed as a limitation in the thesis.
+
+PART B — inference quantities reported in the thesis text but not visible
+in the regression tables:
+
+  6. Confidence intervals (90% and 95%) and one-sided p-values
+  7. Joint significance of the industry fixed effects and firm controls
+  8. Minimum detectable effect at 80% power
+  9. Effect size scaled to the observed interquartile range of the
+     regressor, rather than the hypothetical 0-to-1 range
 
 Usage:
     python 11_ols_diagnostics.py
@@ -143,6 +152,101 @@ def main() -> None:
     out("Exogeneity of the regressors cannot be tested directly with")
     out("cross-sectional data and is addressed as a limitation.")
     out("-" * 68)
+    out()
+
+    # =================================================================
+    # PART B — INFERENCE DETAIL
+    # Quantities reported in the thesis text that are not visible in the
+    # regression tables: confidence intervals, joint significance tests,
+    # minimum detectable effects, and effect sizes scaled to the observed
+    # range of the regressor.
+    # =================================================================
+    out()
+    out("=" * 68)
+    out("INFERENCE DETAIL")
+    out("=" * 68)
+    out()
+
+    # --- Confidence intervals (HC3) --------------------------------------
+    out("6. CONFIDENCE INTERVALS (HC3 robust)")
+    out("-" * 68)
+
+    def spec_sample(main_var):
+        """Rebuild the main specification for a given independent variable."""
+        req = ['days', main_var] + CONTROLS + ['sic_1digit']
+        s = df.dropna(subset=req).copy()
+        cnt = s['sic_1digit'].value_counts()
+        return s[s['sic_1digit'].isin(cnt[cnt >= 2].index)].copy()
+
+    def spec_fit(s, main_var):
+        d = pd.get_dummies(
+            s['sic_1digit'].astype(int), prefix='sic', drop_first=True
+        ).astype(float)
+        XX = sm.add_constant(pd.concat([s[[main_var] + CONTROLS], d], axis=1))
+        return sm.OLS(s['days'], XX).fit(cov_type='HC3')
+
+    specs = [("CEO equity share", 'equity_share'),
+             ("All-executives equity share", 'equity_share_pooled')]
+
+    fitted = {}
+    for label, var in specs:
+        s = spec_sample(var)
+        rr = spec_fit(s, var)
+        fitted[var] = (label, s, rr)
+        b, se, p = rr.params[var], rr.bse[var], rr.pvalues[var]
+        ci90 = rr.conf_int(alpha=0.10).loc[var]
+        ci95 = rr.conf_int(alpha=0.05).loc[var]
+        out(f"   {label}  (n = {int(rr.nobs)})")
+        out(f"      beta = {b:+.3f}   SE = {se:.3f}   two-sided p = {p:.4f}")
+        out(f"      90% CI: [{ci90[0]:+.3f}, {ci90[1]:+.3f}]")
+        out(f"      95% CI: [{ci95[0]:+.3f}, {ci95[1]:+.3f}]")
+        out(f"      one-sided p (H1: beta > 0) = {p / 2:.4f}")
+        out()
+
+    # --- Joint significance ----------------------------------------------
+    # Computed on an HC3 fit so that these match the standard errors
+    # reported in the regression tables. The residual-based diagnostics
+    # above use the non-robust fit, since HC3 affects only the standard
+    # errors and not the residuals or fitted values.
+    out("7. JOINT SIGNIFICANCE (main CEO specification, HC3)")
+    out("-" * 68)
+    r_hc3 = sm.OLS(y, X).fit(cov_type='HC3')
+    sic_terms = [c for c in r_hc3.params.index if c.startswith('sic_')]
+    f_fe = r_hc3.f_test(", ".join(f"{t} = 0" for t in sic_terms))
+    f_ct = r_hc3.f_test(", ".join(f"{c} = 0" for c in CONTROLS))
+    out(f"   Industry fixed effects jointly zero:")
+    out(f"      F = {float(f_fe.fvalue):.3f},  p = {float(f_fe.pvalue):.4f},  "
+        f"df = {len(sic_terms)}")
+    out(f"   Firm controls jointly zero:")
+    out(f"      F = {float(f_ct.fvalue):.3f},  p = {float(f_ct.pvalue):.4f},  "
+        f"df = {len(CONTROLS)}")
+    out()
+
+    # --- Minimum detectable effect ---------------------------------------
+    out("8. MINIMUM DETECTABLE EFFECT (80% power, 5% two-sided)")
+    out("-" * 68)
+    z_alpha = stats.norm.ppf(0.975)
+    z_beta = stats.norm.ppf(0.80)
+    for var, (label, s, rr) in fitted.items():
+        se = rr.bse[var]
+        mde = (z_alpha + z_beta) * se
+        out(f"   {label}: SE = {se:.3f}")
+        out(f"      MDE = {mde:.2f} blackout days across the full 0-1 range")
+    out()
+
+    # --- Effect over the observed range ----------------------------------
+    out("9. EFFECT SIZE OVER THE OBSERVED RANGE OF THE REGRESSOR")
+    out("-" * 68)
+    for var, (label, s, rr) in fitted.items():
+        q25, q75 = s[var].quantile(0.25), s[var].quantile(0.75)
+        iqr = q75 - q25
+        ci90 = rr.conf_int(alpha=0.10).loc[var]
+        out(f"   {label}: p25 = {q25:.3f}, p75 = {q75:.3f}, IQR = {iqr:.3f}")
+        out(f"      Point estimate over IQR: {rr.params[var] * iqr:+.2f} days")
+        out(f"      90% CI over IQR: [{ci90[0] * iqr:+.2f}, "
+            f"{ci90[1] * iqr:+.2f}] days")
+    out(f"   Median blackout days in the sample: {m['days'].median():.0f}")
+    out()
 
     (OUT_DIR / 'table7_ols_diagnostics.txt').write_text("\n".join(lines))
 

@@ -1,22 +1,22 @@
 Variable,N,Mean,SD,p25,Median,p75,Min,Max
-Blackout days before quarter end,604,14.836,8.775,10.75,15.0,20.0,0.0,35.0
-Has recurring blackout (0/1),604,1.0,0.0,1.0,1.0,1.0,1.0,1.0
-Requires pre-clearance (0/1),604,0.982,0.134,1.0,1.0,1.0,0.0,1.0
-Prohibits hedging (0/1),604,0.932,0.252,1.0,1.0,1.0,0.0,1.0
-CEO equity pay share,604,0.658,0.212,0.598,0.702,0.788,0.0,1.0
-All-execs equity pay share (pooled),604,0.634,0.16,0.55,0.648,0.736,0.0,0.989
+Blackout days before quarter end,604,14.836,8.775,10.75,15,20,0,35
+Has recurring blackout (0/1),604,1,0,1,1,1,1,1
+Requires pre-clearance (0/1),604,0.982,0.134,1,1,1,0,1
+Prohibits hedging (0/1),604,0.932,0.252,1,1,1,0,1
+CEO equity pay share,604,0.658,0.212,0.598,0.702,0.788,0,1
+All-execs equity pay share (pooled),604,0.634,0.16,0.55,0.648,0.736,0,0.989
 CEO share ownership (%),598,1.231,4.303,0.069,0.19,0.558,0.001,46.258
 CEO holdings value (USD millions),598,818.32,9585.559,15.444,39.736,113.82,0.21,200701.591
 CEO holdings / annual comp,598,168.749,2036.231,1.262,2.734,7.52,0.005,46956.617
 "Log(market cap, USD millions)",604,9.982,1.233,9.067,9.746,10.72,7.447,15.142
 Market cap (USD millions),604,68845.112,275347.039,8662.734,17091.88,45262.123,1714.519,3766499.857
 Log(total assets) [robustness],604,9.733,1.432,8.691,9.598,10.664,6.44,15.203
-Leverage (winsorized),604,0.316,0.212,0.16,0.302,0.429,0.0,1.161
+Leverage (winsorized),604,0.316,0.212,0.16,0.302,0.429,0,1.161
 ROA (winsorized),604,0.068,0.07,0.027,0.055,0.104,-0.252,0.266
-Institutional ownership (%),604,0.852,0.14,0.785,0.883,0.961,0.211,1.0
-Blockholder ownership (5%+),604,0.223,0.097,0.158,0.219,0.283,0.0,0.567
+Institutional ownership (%),604,0.852,0.14,0.785,0.883,0.961,0.211,1
+Blockholder ownership (5%+),604,0.223,0.097,0.158,0.219,0.283,0,0.567
 Top-5 investor ownership,604,0.306,0.071,0.26,0.302,0.348,0.085,0.678
 Herfindahl concentration index,604,0.039,0.021,0.03,0.036,0.043,0.018,0.257
-Number of institutional owners,604,1192.146,882.722,596.5,927.0,1403.75,268.0,6220.0
-CEO age,602,58.292,6.689,54.0,59.0,62.0,38.0,87.0
-CEO tenure (years),603,7.469,7.52,2.0,5.0,10.0,-1.0,52.0
+Number of institutional owners,604,1192.146,882.722,596.5,927,1403.75,268,6220
+CEO age,602,58.292,6.689,54,59,62,38,87
+CEO tenure (years),603,7.469,7.52,2,5,10,-1,52

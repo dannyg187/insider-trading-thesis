@@ -1,0 +1,90 @@
+====================================================================
+OLS DIAGNOSTICS — MAIN SPECIFICATION (Table 3, column 3)
+====================================================================
+Observations: 604
+Regressors (incl. constant and industry dummies): 12
+R-squared: 0.0607
+
+1. MULTICOLLINEARITY — variance inflation factors
+--------------------------------------------------------------------
+   equity_share              1.069
+   log_mktcap                1.093
+   leverage_w                1.207
+   roa_w                     1.147
+   sic_2                     4.282
+   sic_3                     5.745
+   sic_4                     3.567
+   sic_5                     3.084
+   sic_6                     4.189
+   sic_7                     3.988
+   sic_8                     1.790
+   Maximum VIF among the main regressors: 1.207
+
+2. HOMOSKEDASTICITY
+--------------------------------------------------------------------
+   Breusch-Pagan:  LM = 12.986,  p = 0.2942
+   White:          LM = 52.733,  p = 0.3318
+
+3. NORMALITY OF THE ERROR TERM
+--------------------------------------------------------------------
+   Jarque-Bera:  JB = 2.139,  p = 0.3432
+   Skewness = -0.016   Kurtosis = 2.710
+
+4. FUNCTIONAL FORM
+--------------------------------------------------------------------
+   Ramsey RESET (squared fitted values): F = 0.055,  p = 0.8155
+
+5. INFLUENTIAL OBSERVATIONS
+--------------------------------------------------------------------
+   Cook's distance threshold (4/n): 0.00662
+   Observations above threshold: 32 (5.3%)
+   Maximum Cook's distance: 0.0331
+   Observations with Cook's distance above 1: 0
+
+--------------------------------------------------------------------
+Exogeneity of the regressors cannot be tested directly with
+cross-sectional data and is addressed as a limitation.
+--------------------------------------------------------------------
+
+
+====================================================================
+INFERENCE DETAIL
+====================================================================
+
+6. CONFIDENCE INTERVALS (HC3 robust)
+--------------------------------------------------------------------
+   CEO equity share  (n = 604)
+      beta = +1.589   SE = 1.724   two-sided p = 0.3567
+      90% CI: [-1.246, +4.424]
+      95% CI: [-1.790, +4.967]
+      one-sided p (H1: beta > 0) = 0.1783
+
+   All-executives equity share  (n = 604)
+      beta = +4.182   SE = 2.532   two-sided p = 0.0986
+      90% CI: [+0.018, +8.346]
+      95% CI: [-0.780, +9.144]
+      one-sided p (H1: beta > 0) = 0.0493
+
+7. JOINT SIGNIFICANCE (main CEO specification, HC3)
+--------------------------------------------------------------------
+   Industry fixed effects jointly zero:
+      F = 3.636,  p = 0.0008,  df = 7
+   Firm controls jointly zero:
+      F = 3.465,  p = 0.0161,  df = 3
+
+8. MINIMUM DETECTABLE EFFECT (80% power, 5% two-sided)
+--------------------------------------------------------------------
+   CEO equity share: SE = 1.724
+      MDE = 4.83 blackout days across the full 0-1 range
+   All-executives equity share: SE = 2.532
+      MDE = 7.09 blackout days across the full 0-1 range
+
+9. EFFECT SIZE OVER THE OBSERVED RANGE OF THE REGRESSOR
+--------------------------------------------------------------------
+   CEO equity share: p25 = 0.598, p75 = 0.788, IQR = 0.189
+      Point estimate over IQR: +0.30 days
+      90% CI over IQR: [-0.24, +0.84] days
+   All-executives equity share: p25 = 0.550, p75 = 0.736, IQR = 0.186
+      Point estimate over IQR: +0.78 days
+      90% CI over IQR: [+0.00, +1.55] days
+   Median blackout days in the sample: 15
