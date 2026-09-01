@@ -25,7 +25,7 @@ Overall the evidence provides qualified support for the "complements" view: equi
 Scripts are numbered by dependency order rather than strictly by execution order (see the run sequence below):
 
 ```
-01_read_files.py               Extract policy features from EX-19 files via GPT-4o-mini
+01_read_files.py               Extract policy features from EX-19 files via GPT-5.4 nano
                                (based on the supervisor's script, with the JSON schema
                                extended to also capture pre-clearance and hedging rules)
 01b_recover_missing.py         Re-run on flagged files with a sharpened prompt
