@@ -39,6 +39,8 @@ Scripts are numbered by dependency order rather than strictly by execution order
                                holdings variables → analysis_v3.csv
 08_descriptive_stats.py        Produce Table 1, correlation matrix, figures
 09_main_regression.py          Produce Tables 3, 4, 5, and 6
+10_add_factset_ownership.py    Adds ownership component
+11_ols_diagnostics.py          OLS assumption tests and inference detail
 ```
 
 Note that 08 and 09 must be run *after* 10, because they rely on FactSet-derived variables (market capitalization, institutional ownership, and CEO holdings).
