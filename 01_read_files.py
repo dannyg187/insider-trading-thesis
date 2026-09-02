@@ -1,23 +1,10 @@
 #!/usr/bin/env python3
-"""
-01_read_files.py – recurring blackout analysis (one policy per API call)
-python 01_read_files.py
-
-Goal:
-    For each policy file in ex19_policies/, analyze recurring quarterly
-    trading windows and blackout periods and combine with metadata
-    (CIK and filing_date) from ex19_metadata.csv.
-
-Output:
-    blackout_summary.csv
-
-Requirements:
-    pip install openai python-dotenv beautifulsoup4
-
-.env file (same directory as this script):
-    OPENAI_API_KEY=sk-...
-
-"""
+# Reads the EX-19 policies, asks the model when the quarterly trading window
+# closes, joins the metadata csv, dumps blackout_summary.csv.
+#
+#   pip install openai python-dotenv beautifulsoup4
+#   OPENAI_API_KEY goes in a .env next to this file
+#   python 01_read_files.py
 
 import csv
 import json
@@ -26,62 +13,31 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 from bs4 import BeautifulSoup # pyright: ignore[reportMissingImports]
 from dotenv import load_dotenv # pyright: ignore[reportMissingImports]
 from openai import OpenAI # pyright: ignore[reportMissingImports]
 
-# ---------------------------------------------------------------------
-# CONFIG
-# ---------------------------------------------------------------------
-
 EX19_DIR = Path("ex19_policies")
 METADATA_FILE = EX19_DIR / "ex19_metadata.csv"
 OUTPUT_CSV = "blackout_summary.csv"
 
-# Stay with this model
-MODEL_NAME = "gpt-5.4-nano"
-
-# Allow larger context for better accuracy
-MAX_CONTEXT_CHARS = 30000  
-
-# Number of retries for API calls
+MODEL_NAME = "gpt-5.4-nano"  # stay with this model
+MAX_CONTEXT_CHARS = 30000
 MAX_RETRIES = 2
 
-# TEST MODE: Process only first N files
+# only run part of the folder (testing / re-runs after a crash)
 TEST_MODE = False
 TEST_FILE_LIMIT = 3
-
-# RANGE MODE: Process specific range of files
 RANGE_MODE = False
-RANGE_START = 90  # Start at file index 90 (0-based, so this is the 91st file)
-RANGE_END = 95   # End at file index 100 (exclusive, so up to 100th file)
+RANGE_START = 90
+RANGE_END = 95
+
+META_FIELDS = ["cik", "ticker", "company_name", "sector", "market_value",
+               "accession", "filing_date", "url"]
 
 
-# ---------------------------------------------------------------------
-# LOGGING
-# ---------------------------------------------------------------------
-
-
-def setup_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[logging.StreamHandler()],
-    )
-
-
-# ---------------------------------------------------------------------
-# TEXT / FILE HELPERS
-# ---------------------------------------------------------------------
-
-
-def extract_text(path: Path) -> str:
-    """
-    Read file and return plain text.
-    If it looks like HTML, strip tags with BeautifulSoup.
-    """
+def extract_text(path):
     try:
         raw = path.read_text(encoding="utf-8", errors="ignore")
     except Exception:
@@ -90,41 +46,26 @@ def extract_text(path: Path) -> str:
         except Exception:
             raw = path.read_bytes().decode("cp1252", errors="ignore")
 
-    if "<html" in raw.lower() or "<body" in raw.lower():
-        soup = BeautifulSoup(raw, "html.parser")
-        
-        # Remove script and style elements
-        for script in soup(["script", "style"]):
-            script.decompose()
-        
-        # Get text
-        text = soup.get_text(separator="\n", strip=True)
-        
-        # Clean up excessive whitespace
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        text = "\n".join(lines)
-        
-        return text
+    low = raw.lower()
+    if "<html" not in low and "<body" not in low:
+        return raw
 
-    return raw
+    soup = BeautifulSoup(raw, "html.parser")
+    for tag in soup(["script", "style"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n", strip=True)
+    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
 
+def lightly_filter(text):
+    # whole exhibits blow past the context limit, so score paragraphs on
+    # window/blackout language and keep the top ones
+    paragraphs = re.split(r"\n\s*\n", re.sub(r"\r\n?", "\n", text))
 
-def lightly_filter(text: str) -> str:
-    """
-    Extract paragraphs containing window/blackout information.
-    Prioritize paragraphs with specific timing language.
-    """
-    text_norm = re.sub(r"\r\n?", "\n", text)
-    paragraphs = re.split(r"\n\s*\n", text_norm)
-
-    # Score each paragraph by relevance
     scored = []
     for p in paragraphs:
         lower = p.lower()
         score = 0
-        
-        # High priority phrases
         if "ending" in lower and ("week" in lower or "day" in lower):
             score += 10
         if "window period" in lower or "trading window" in lower:
@@ -140,66 +81,45 @@ def lightly_filter(text: str) -> str:
         if "financial" in lower and "release" in lower:
             score += 5
 
-        if score > 0:
+        if score:
             scored.append((score, p))
-    
-    # Sort by score, take top paragraphs
+
     scored.sort(reverse=True, key=lambda x: x[0])
-    top_paragraphs = [p for score, p in scored[:50]]  # Top 50 paragraphs
-    
-    joined = "\n\n".join(top_paragraphs)
-    
-    if joined and len(joined) > 200:
+    joined = "\n\n".join(p for _, p in scored[:50])
+
+    if len(joined) > 200:
         return joined[:MAX_CONTEXT_CHARS]
-    
-    # Fallback to full text
     return text[:MAX_CONTEXT_CHARS]
 
 
-
-
-# ---------------------------------------------------------------------
-# METADATA LOADING
-# ---------------------------------------------------------------------
-
-
-def load_metadata() -> Dict[str, Dict[str, str]]:
-    """
-    Load exhibit metadata from ex19_metadata.csv into a dict:
-        filename -> {cik, ticker, company_name, sector, market_value, accession, filing_date, url}
-    """
-    meta: Dict[str, Dict[str, str]] = {}
-
+def load_metadata():
     if not METADATA_FILE.exists():
-        logging.warning(
-            f"No metadata file found at {METADATA_FILE}; metadata will be empty."
-        )
-        return meta
+        logging.warning(f"no metadata at {METADATA_FILE}, continuing without it")
+        return {}
 
+    meta = {}
     with METADATA_FILE.open("r", newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
+        for row in csv.DictReader(f):
             fname = row.get("filename", "").strip()
             if not fname:
                 continue
-            meta[fname] = {
-                'cik': row.get('cik', '').strip(),
-                'ticker': row.get('ticker', '').strip(),
-                'company_name': row.get('company_name', '').strip(),
-                'sector': row.get('sector', '').strip(),
-                'market_value': row.get('market_value', '').strip(),
-                'accession': row.get('accession', '').strip(),
-                'filing_date': row.get('filing_date', '').strip(),
-                'url': row.get('url', '').strip(),
-            }
+            meta[fname] = {k: row.get(k, "").strip() for k in META_FIELDS}
 
-    logging.info(f"Loaded metadata for {len(meta)} exhibits from {METADATA_FILE}")
+    logging.info(f"loaded metadata for {len(meta)} exhibits")
     return meta
 
 
-# ---------------------------------------------------------------------
-# OPENAI CLIENT
-# ---------------------------------------------------------------------
+def create_client():
+    env_path = Path(__file__).resolve().parent / ".env"
+    load_dotenv(dotenv_path=env_path)
+
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        logging.error(f"OPENAI_API_KEY not found in {env_path}")
+        sys.exit(1)
+
+    return OpenAI(api_key=key)
+
 
 SYSTEM_PROMPT = """
 Analyze insider trading policies to find when trading windows close before quarter end.
@@ -289,114 +209,8 @@ Be CONSERVATIVE on both: when language is ambiguous, vague, or only implied, mar
 Output ONLY valid JSON.
 """
 
-def create_client() -> OpenAI:
-    """Create OpenAI client, loading key from .env next to this script."""
-    script_dir = Path(__file__).resolve().parent
-    env_path = script_dir / ".env"
-    load_dotenv(dotenv_path=env_path)
 
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        logging.error(f"OPENAI_API_KEY not found in {env_path}")
-        sys.exit(1)
-
-    return OpenAI(api_key=key)
-
-
-def validate_response(data: Dict[str, Any], filename: str) -> Dict[str, Any]:
-    """Validate and clean the model response."""
-    # Ensure required fields exist
-    data.setdefault("has_recurring_blackout", False)
-    data.setdefault("has_ad_hoc_blackout", False)
-    data.setdefault("requires_preclearance", False)
-    data.setdefault("preclearance_description", "")
-    data.setdefault("prohibits_hedging", False)
-    data.setdefault("hedging_description", "")
-    data.setdefault("general_description", "")
-    data.setdefault("groups", [])
-    
-    # Validate numeric fields
-    for group in data.get("groups", []):
-        pattern = group.get("blackout_pattern", {})
-        
-        # Validate blackout_start_days_before_quarter_end
-        days_before = pattern.get("blackout_start_days_before_quarter_end")
-        if days_before is not None:
-            try:
-                days_before = int(days_before)
-                if days_before < 0 or days_before > 90:
-                    logging.warning(
-                        f"{filename}: Invalid blackout_start_days_before_quarter_end "
-                        f"value {days_before}, setting to null"
-                    )
-                    pattern["blackout_start_days_before_quarter_end"] = None
-                else:
-                    # Ensure it's stored as int
-                    pattern["blackout_start_days_before_quarter_end"] = days_before
-            except (ValueError, TypeError):
-                logging.warning(
-                    f"{filename}: Non-integer blackout_start_days_before_quarter_end, "
-                    f"setting to null"
-                )
-                pattern["blackout_start_days_before_quarter_end"] = None
-    
-    return data
-
-
-def analyze_policy(client: OpenAI, filename: str, text: str) -> Dict[str, Any]:
-    """
-    Call the model for a single policy and parse its JSON answer.
-    Includes retry logic and validation.
-    """
-    user_prompt = (
-        f"Policy file: {filename}\n\n"
-        f"POLICY TEXT:\n{text}\n\n"
-        "Return JSON only. Determine exact blackout_start_days_before_quarter_end (no rounding)."
-    )
-
-    for attempt in range(MAX_RETRIES):
-        try:
-            response = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0,  # Deterministic output
-                response_format={"type": "json_object"}  # Force JSON mode
-            )
-
-            raw = response.choices[0].message.content.strip()
-            logging.debug(f"Raw model output for {filename}:\n{raw}")
-
-            # Parse JSON
-            data = json.loads(raw)
-            
-            # Validate and clean the response
-            data = validate_response(data, filename)
-            
-            return data
-
-        except json.JSONDecodeError as e:
-            logging.warning(
-                f"Attempt {attempt + 1}/{MAX_RETRIES} - JSON parse error for "
-                f"{filename}: {e}"
-            )
-            if attempt == MAX_RETRIES - 1:
-                # Last attempt failed
-                break
-        
-        except Exception as e:
-            logging.warning(
-                f"Attempt {attempt + 1}/{MAX_RETRIES} - API error for "
-                f"{filename}: {e}"
-            )
-            if attempt == MAX_RETRIES - 1:
-                # Last attempt failed
-                break
-
-    # All attempts failed
-    logging.error(f"Failed to analyze {filename} after {MAX_RETRIES} attempts")
+def blank_result(note=""):
     return {
         "has_recurring_blackout": False,
         "has_ad_hoc_blackout": False,
@@ -404,185 +218,135 @@ def analyze_policy(client: OpenAI, filename: str, text: str) -> Dict[str, Any]:
         "preclearance_description": "",
         "prohibits_hedging": False,
         "hedging_description": "",
-        "general_description": "Analysis failed after multiple attempts.",
+        "general_description": note,
         "groups": [],
     }
 
 
+def clean_days(data, filename):
+    # model occasionally answers "14 days" or something out of range
+    for group in data.get("groups", []):
+        pattern = group.get("blackout_pattern", {})
+        days = pattern.get("blackout_start_days_before_quarter_end")
+        if days is None:
+            continue
+        try:
+            days = int(days)
+        except (ValueError, TypeError):
+            logging.warning(f"{filename}: days value not an integer, dropping it")
+            days = None
+        if days is not None and not 0 <= days <= 90:
+            logging.warning(f"{filename}: days out of range ({days}), dropping it")
+            days = None
+        pattern["blackout_start_days_before_quarter_end"] = days
+    return data
 
 
-# ---------------------------------------------------------------------
-# RESULT POST-PROCESSING
-# ---------------------------------------------------------------------
+def analyze_policy(client, filename, text):
+    user_prompt = (
+        f"Policy file: {filename}\n\n"
+        f"POLICY TEXT:\n{text}\n\n"
+        "Return JSON only. Determine exact blackout_start_days_before_quarter_end (no rounding)."
+    )
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0,
+                response_format={"type": "json_object"},
+            )
+            data = json.loads(response.choices[0].message.content.strip())
+            for k, v in blank_result().items():
+                data.setdefault(k, v)
+            data = clean_days(data, filename)
+        except Exception as e:
+            logging.warning(f"{filename}: attempt {attempt}/{MAX_RETRIES} failed ({e})")
+            continue
+
+        return data
+
+    logging.error(f"giving up on {filename}")
+    return blank_result("Analysis failed after multiple attempts.")
 
 
-def select_primary_group(groups: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """
-    From the groups list, pick the primary group (broadest coverage).
-    Typically this is the first group, which should be the least restrictive.
-    """
-    if not groups:
-        return None
-    return groups[0]
+def oneline(s):
+    return str(s or "").replace("\n", " ")
 
 
-# ---------------------------------------------------------------------
-# MAIN
-# ---------------------------------------------------------------------
+FIELDNAMES = ["filename", "accession", "cik", "ticker", "company_name", "sector",
+              "market_value", "filing_date", "has_recurring_blackout",
+              "has_ad_hoc_blackout", "requires_preclearance", "preclearance_description",
+              "prohibits_hedging", "hedging_description", "general_description",
+              "group_name", "blackout_description",
+              "blackout_start_days_before_quarter_end", "url", "groups_raw_json"]
 
 
-def main() -> None:
-    setup_logging()
+def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+    )
 
     if not EX19_DIR.exists():
-        logging.error(f"Folder not found: {EX19_DIR.resolve()}")
+        logging.error(f"folder not found: {EX19_DIR.resolve()}")
         sys.exit(1)
 
-    all_files = sorted(
-        [
-            p
-            for p in EX19_DIR.iterdir()
-            if p.is_file() and p.name != METADATA_FILE.name
-        ]
-    )
-    
-    # Apply range mode if enabled
+    all_files = sorted(p for p in EX19_DIR.iterdir()
+                       if p.is_file() and p.name != METADATA_FILE.name)
+
     if RANGE_MODE:
         files = all_files[RANGE_START:RANGE_END]
-        logging.info(
-            f"RANGE MODE: Processing files {RANGE_START} to {RANGE_END} "
-            f"({len(files)} files) out of {len(all_files)} total"
-        )
-    # Apply test mode limit if enabled
     elif TEST_MODE:
         files = all_files[:TEST_FILE_LIMIT]
-        logging.info(
-            f"TEST MODE: Processing only first {TEST_FILE_LIMIT} files "
-            f"out of {len(all_files)} total files"
-        )
     else:
         files = all_files
-        logging.info(f"Found {len(files)} policy files in {EX19_DIR.resolve()}")
 
+    logging.info(f"processing {len(files)} of {len(all_files)} files in {EX19_DIR.resolve()}")
     if not files:
-        logging.info("No files found. Exiting.")
         return
 
     metadata = load_metadata()
     client = create_client()
-
-    rows: List[Dict[str, Any]] = []
+    rows = []
 
     for i, f in enumerate(files, 1):
-        logging.info(f"[{i}/{len(files)}] Analyzing {f.name}")
-        full_text = extract_text(f)
-        context = lightly_filter(full_text)
-
-        result = analyze_policy(client, f.name, context)
-
-        has_recurring_blackout = result.get("has_recurring_blackout", False)
-        has_ad_hoc_blackout = result.get("has_ad_hoc_blackout", False)
-        requires_preclearance = result.get("requires_preclearance", False)
-        preclearance_description = result.get("preclearance_description", "")
-        prohibits_hedging = result.get("prohibits_hedging", False)
-        hedging_description = result.get("hedging_description", "")
-        general_description = result.get("general_description", "")
+        logging.info(f"[{i}/{len(files)}] {f.name}")
+        result = analyze_policy(client, f.name, lightly_filter(extract_text(f)))
 
         groups = result.get("groups") or []
-        primary = select_primary_group(groups)
+        primary = groups[0] if groups else {}  # first group is the broadest one
+        pattern = primary.get("blackout_pattern") or {}
+        days = pattern.get("blackout_start_days_before_quarter_end")
 
-        # Defaults if no group info
-        group_name = ""
-        blackout_desc = ""
-        blackout_start_days_before_q_end = ""
-
-        if primary:
-            group_name = str(primary.get("name", ""))
-            pattern = primary.get("blackout_pattern") or {}
-
-            blackout_desc = str(pattern.get("description", ""))
-
-            bstart_val = pattern.get(
-                "blackout_start_days_before_quarter_end", None
-            )
-            if bstart_val is not None:
-                blackout_start_days_before_q_end = str(bstart_val)
-
-        # Lookup metadata
-        meta_row = metadata.get(f.name, {})
-        cik = meta_row.get("cik", "")
-        ticker = meta_row.get("ticker", "")
-        company_name = meta_row.get("company_name", "")
-        sector = meta_row.get("sector", "")
-        market_value = meta_row.get("market_value", "")
-        accession = meta_row.get("accession", "")
-        filing_date = meta_row.get("filing_date", "")
-        url = meta_row.get("url", "")
-
-        # Optional: store full groups JSON as string for debugging
-        groups_json = json.dumps(groups, ensure_ascii=False)
-
-        row = {
-            "filename": f.name,
-            "cik": cik,
-            "ticker": ticker,
-            "company_name": company_name,
-            "sector": sector,
-            "market_value": market_value,
-            "accession": accession,
-            "filing_date": filing_date,
-            "url": url,
-            "has_recurring_blackout": has_recurring_blackout,
-            "has_ad_hoc_blackout": has_ad_hoc_blackout,
-            "requires_preclearance": requires_preclearance,
-            "preclearance_description": preclearance_description.replace("\n", " "),
-            "prohibits_hedging": prohibits_hedging,
-            "hedging_description": hedging_description.replace("\n", " "),
-            "general_description": general_description.replace("\n", " "),
-            "group_name": group_name,
-            "blackout_description": blackout_desc.replace("\n", " "),
-            "blackout_start_days_before_quarter_end": blackout_start_days_before_q_end,
-            "groups_raw_json": groups_json,
-        }
+        meta = metadata.get(f.name, {})
+        row = {"filename": f.name}
+        row.update({k: meta.get(k, "") for k in META_FIELDS})
+        row.update({
+            "has_recurring_blackout": result["has_recurring_blackout"],
+            "has_ad_hoc_blackout": result["has_ad_hoc_blackout"],
+            "requires_preclearance": result["requires_preclearance"],
+            "preclearance_description": oneline(result["preclearance_description"]),
+            "prohibits_hedging": result["prohibits_hedging"],
+            "hedging_description": oneline(result["hedging_description"]),
+            "general_description": oneline(result["general_description"]),
+            "group_name": str(primary.get("name", "")),
+            "blackout_description": oneline(pattern.get("description")),
+            "blackout_start_days_before_quarter_end": "" if days is None else days,
+            "groups_raw_json": json.dumps(groups, ensure_ascii=False),
+        })
         rows.append(row)
 
-    # Write CSV
-    fieldnames = [
-        "filename",
-        "accession",
-        "cik",
-        "ticker",
-        "company_name",
-        "sector",
-        "market_value",
-        "filing_date",
-        "has_recurring_blackout",
-        "has_ad_hoc_blackout",
-        "requires_preclearance",
-        "preclearance_description",
-        "prohibits_hedging",
-        "hedging_description",
-        "general_description",
-        "group_name",
-        "blackout_description",
-        "blackout_start_days_before_quarter_end",
-        "url",
-        "groups_raw_json",
-    ]
-
     with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as fp:
-        writer = csv.DictWriter(fp, fieldnames=fieldnames)
+        writer = csv.DictWriter(fp, fieldnames=FIELDNAMES)
         writer.writeheader()
-        for r in rows:
-            writer.writerow(r)
+        writer.writerows(rows)
 
-    if TEST_MODE:
-        logging.info(
-            f"TEST MODE COMPLETE: Wrote {len(rows)} rows to {OUTPUT_CSV} "
-            f"({len(all_files) - len(files)} files skipped)"
-        )
-    else:
-        logging.info(f"Wrote {len(rows)} rows to {OUTPUT_CSV}")
+    logging.info(f"wrote {len(rows)} rows to {OUTPUT_CSV}")
 
 
 if __name__ == "__main__":

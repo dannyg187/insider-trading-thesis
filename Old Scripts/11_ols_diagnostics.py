@@ -1,20 +1,38 @@
 #!/usr/bin/env python3
-# OLS assumption tests and the inference quantities quoted in the thesis text
-# but not visible in the regression tables. Reads analysis_v3.csv, writes
-# table7_ols_diagnostics.txt/.csv and figure5_residual_diagnostics.png.
-#
-# Part A tests the main specification (Table 3, column 3): multicollinearity
-# via VIF, homoskedasticity via Breusch-Pagan and White, normality via
-# Jarque-Bera, functional form via Ramsey RESET, and influence via Cook's
-# distance. Exogeneity is not testable on cross-sectional data and is handled
-# as a limitation in the text instead.
-#
-# Part B covers confidence intervals and one-sided p-values, joint
-# significance of the fixed effects and controls, the minimum detectable
-# effect at 80% power, and the effect scaled to the regressor's observed IQR
-# rather than the hypothetical 0-to-1 range.
-#
-#   python 11_ols_diagnostics.py
+"""
+11_ols_diagnostics.py — OLS assumption tests and inference detail
+
+Input:
+    analysis_v3.csv
+
+Outputs (./output/):
+    table7_ols_diagnostics.txt / .csv  — diagnostic test results
+    figure5_residual_diagnostics.png   — 4-panel residual plots
+
+PART A — assumption tests on the main specification (Table 3, column 3):
+
+  1. No perfect multicollinearity     — variance inflation factors
+  2. Homoskedasticity                 — Breusch-Pagan and White tests
+  3. Normality of the error term      — Jarque-Bera test, skewness, kurtosis
+  4. Correct functional form          — Ramsey RESET test
+  5. No single influential observation— Cook's distance
+
+Assumptions that cannot be tested with cross-sectional data are noted in
+the output: exogeneity of the regressors (zero conditional mean) is not
+directly testable and is discussed as a limitation in the thesis.
+
+PART B — inference quantities reported in the thesis text but not visible
+in the regression tables:
+
+  6. Confidence intervals (90% and 95%) and one-sided p-values
+  7. Joint significance of the industry fixed effects and firm controls
+  8. Minimum detectable effect at 80% power
+  9. Effect size scaled to the observed interquartile range of the
+     regressor, rather than the hypothetical 0-to-1 range
+
+Usage:
+    python 11_ols_diagnostics.py
+"""
 
 import warnings
 from pathlib import Path
@@ -37,26 +55,9 @@ OUT_DIR = Path("output")
 OUT_DIR.mkdir(exist_ok=True)
 
 CONTROLS = ['log_mktcap', 'leverage_w', 'roa_w']
-COLOR = '#2c3e50'
-
-SPECS = [("CEO equity share", 'equity_share'),
-         ("All-executives equity share", 'equity_share_pooled')]
 
 
-def spec_sample(df, main_var):
-    """The main specification's sample for a given independent variable."""
-    s = df.dropna(subset=['days', main_var] + CONTROLS + ['sic_1digit']).copy()
-    cnt = s['sic_1digit'].value_counts()
-    return s[s['sic_1digit'].isin(cnt[cnt >= 2].index)].copy()
-
-
-def design_matrix(s, main_var):
-    d = pd.get_dummies(
-        s['sic_1digit'].astype(int), prefix='sic', drop_first=True).astype(float)
-    return sm.add_constant(pd.concat([s[[main_var] + CONTROLS], d], axis=1))
-
-
-def main():
+def main() -> None:
     if not INPUT_CSV.exists():
         print(f"ERROR: {INPUT_CSV} not found.")
         return
@@ -65,8 +66,14 @@ def main():
     df['days'] = pd.to_numeric(
         df['blackout_start_days_before_quarter_end'], errors='coerce')
 
-    m = spec_sample(df, 'equity_share')
-    X = design_matrix(m, 'equity_share')
+    req = ['days', 'equity_share'] + CONTROLS + ['sic_1digit']
+    m = df.dropna(subset=req).copy()
+    counts = m['sic_1digit'].value_counts()
+    m = m[m['sic_1digit'].isin(counts[counts >= 2].index)].copy()
+
+    sic_d = pd.get_dummies(
+        m['sic_1digit'].astype(int), prefix='sic', drop_first=True).astype(float)
+    X = sm.add_constant(pd.concat([m[['equity_share'] + CONTROLS], sic_d], axis=1))
     y = m['days']
 
     # Diagnostics are computed on the non-robust fit; HC3 affects only the
@@ -86,6 +93,7 @@ def main():
     out(f"R-squared: {r.rsquared:.4f}")
     out()
 
+    # --- 1. Multicollinearity -------------------------------------------
     out("1. MULTICOLLINEARITY — variance inflation factors")
     out("-" * 68)
     Xv = X.astype(float).values
@@ -100,6 +108,7 @@ def main():
     out(f"   Maximum VIF among the main regressors: {main_max:.3f}")
     out()
 
+    # --- 2. Homoskedasticity --------------------------------------------
     out("2. HOMOSKEDASTICITY")
     out("-" * 68)
     bp_lm, bp_p, bp_f, bp_fp = het_breuschpagan(r.resid, X.astype(float))
@@ -111,6 +120,7 @@ def main():
         out("   White test: not computable for this design matrix")
     out()
 
+    # --- 3. Normality ----------------------------------------------------
     out("3. NORMALITY OF THE ERROR TERM")
     out("-" * 68)
     jb, jb_p, skew, kurt = jarque_bera(r.resid)
@@ -118,6 +128,7 @@ def main():
     out(f"   Skewness = {skew:.3f}   Kurtosis = {kurt:.3f}")
     out()
 
+    # --- 4. Functional form ----------------------------------------------
     out("4. FUNCTIONAL FORM")
     out("-" * 68)
     reset = linear_reset(r, power=2, use_f=True)
@@ -125,6 +136,7 @@ def main():
         f"F = {reset.fvalue:.3f},  p = {reset.pvalue:.4f}")
     out()
 
+    # --- 5. Influential observations -------------------------------------
     out("5. INFLUENTIAL OBSERVATIONS")
     out("-" * 68)
     cooks = r.get_influence().cooks_distance[0]
@@ -142,19 +154,44 @@ def main():
     out("-" * 68)
     out()
 
+    # =================================================================
+    # PART B — INFERENCE DETAIL
+    # Quantities reported in the thesis text that are not visible in the
+    # regression tables: confidence intervals, joint significance tests,
+    # minimum detectable effects, and effect sizes scaled to the observed
+    # range of the regressor.
+    # =================================================================
     out()
     out("=" * 68)
     out("INFERENCE DETAIL")
     out("=" * 68)
     out()
 
+    # --- Confidence intervals (HC3) --------------------------------------
     out("6. CONFIDENCE INTERVALS (HC3 robust)")
     out("-" * 68)
 
+    def spec_sample(main_var):
+        """Rebuild the main specification for a given independent variable."""
+        req = ['days', main_var] + CONTROLS + ['sic_1digit']
+        s = df.dropna(subset=req).copy()
+        cnt = s['sic_1digit'].value_counts()
+        return s[s['sic_1digit'].isin(cnt[cnt >= 2].index)].copy()
+
+    def spec_fit(s, main_var):
+        d = pd.get_dummies(
+            s['sic_1digit'].astype(int), prefix='sic', drop_first=True
+        ).astype(float)
+        XX = sm.add_constant(pd.concat([s[[main_var] + CONTROLS], d], axis=1))
+        return sm.OLS(s['days'], XX).fit(cov_type='HC3')
+
+    specs = [("CEO equity share", 'equity_share'),
+             ("All-executives equity share", 'equity_share_pooled')]
+
     fitted = {}
-    for label, var in SPECS:
-        s = spec_sample(df, var)
-        rr = sm.OLS(s['days'], design_matrix(s, var)).fit(cov_type='HC3')
+    for label, var in specs:
+        s = spec_sample(var)
+        rr = spec_fit(s, var)
         fitted[var] = (label, s, rr)
         b, se, p = rr.params[var], rr.bse[var], rr.pvalues[var]
         ci90 = rr.conf_int(alpha=0.10).loc[var]
@@ -166,9 +203,11 @@ def main():
         out(f"      one-sided p (H1: beta > 0) = {p / 2:.4f}")
         out()
 
-    # Joint tests run on an HC3 fit so they match the standard errors in the
-    # regression tables; the residual diagnostics above use the non-robust
-    # fit, since HC3 changes neither the residuals nor the fitted values.
+    # --- Joint significance ----------------------------------------------
+    # Computed on an HC3 fit so that these match the standard errors
+    # reported in the regression tables. The residual-based diagnostics
+    # above use the non-robust fit, since HC3 affects only the standard
+    # errors and not the residuals or fitted values.
     out("7. JOINT SIGNIFICANCE (main CEO specification, HC3)")
     out("-" * 68)
     r_hc3 = sm.OLS(y, X).fit(cov_type='HC3')
@@ -183,6 +222,7 @@ def main():
         f"df = {len(CONTROLS)}")
     out()
 
+    # --- Minimum detectable effect ---------------------------------------
     out("8. MINIMUM DETECTABLE EFFECT (80% power, 5% two-sided)")
     out("-" * 68)
     z_alpha = stats.norm.ppf(0.975)
@@ -194,6 +234,7 @@ def main():
         out(f"      MDE = {mde:.2f} blackout days across the full 0-1 range")
     out()
 
+    # --- Effect over the observed range ----------------------------------
     out("9. EFFECT SIZE OVER THE OBSERVED RANGE OF THE REGRESSOR")
     out("-" * 68)
     for var, (label, s, rr) in fitted.items():
@@ -209,7 +250,7 @@ def main():
 
     (OUT_DIR / 'table7_ols_diagnostics.txt').write_text("\n".join(lines))
 
-    # csv version for pasting into the thesis
+    # CSV summary for pasting into the thesis
     summary = pd.DataFrame([
         {'Assumption': 'No multicollinearity', 'Test': 'Max VIF (main regressors)',
          'Statistic': round(main_max, 3), 'p-value': ''},
@@ -226,10 +267,12 @@ def main():
     ])
     summary.to_csv(OUT_DIR / 'table7_ols_diagnostics.csv', index=False)
 
+    # --- Residual plots ---------------------------------------------------
     fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+    color = '#2c3e50'
 
     axes[0, 0].scatter(r.fittedvalues, r.resid, s=12, alpha=0.4,
-                       color=COLOR, edgecolors='none')
+                       color=color, edgecolors='none')
     axes[0, 0].axhline(0, color='crimson', linewidth=1, linestyle='--')
     axes[0, 0].set_xlabel('Fitted values')
     axes[0, 0].set_ylabel('Residuals')
@@ -237,20 +280,20 @@ def main():
 
     stats.probplot(r.resid, dist="norm", plot=axes[0, 1])
     axes[0, 1].set_title('Normal Q-Q plot')
-    axes[0, 1].get_lines()[0].set_markerfacecolor(COLOR)
+    axes[0, 1].get_lines()[0].set_markerfacecolor(color)
     axes[0, 1].get_lines()[0].set_markeredgecolor('none')
     axes[0, 1].get_lines()[0].set_markersize(4)
     axes[0, 1].get_lines()[1].set_color('crimson')
 
-    axes[1, 0].hist(r.resid, bins=30, color=COLOR, edgecolor='white')
+    axes[1, 0].hist(r.resid, bins=30, color=color, edgecolor='white')
     axes[1, 0].set_xlabel('Residual')
     axes[1, 0].set_ylabel('Frequency')
     axes[1, 0].set_title('Distribution of residuals')
 
     markerline, stemlines, baseline = axes[1, 1].stem(
         np.arange(len(cooks)), cooks, markerfmt=',', linefmt='-', basefmt=' ')
-    plt.setp(stemlines, color=COLOR, linewidth=0.6)
-    plt.setp(markerline, color=COLOR)
+    plt.setp(stemlines, color=color, linewidth=0.6)
+    plt.setp(markerline, color=color)
     axes[1, 1].axhline(thresh, color='crimson', linewidth=1, linestyle='--',
                        label=f'4/n = {thresh:.4f}')
     axes[1, 1].set_xlabel('Observation')

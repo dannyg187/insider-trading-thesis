@@ -1,16 +1,40 @@
 #!/usr/bin/env python3
-# Attaches the FactSet Ownership Summary (Q4 2024) to analysis_v2.csv and
-# derives the CEO stock-holdings variables, writing analysis_v3.csv — the
-# dataset steps 08 and 09 read.
-#
-# From FactSet: mktcap, log_mktcap (the main size control), io, ibh_5pct,
-# top5, herf, nbr_firms, log_n_inst.
-#
-# CEO holdings are the professor's extension: scale accumulated equity by
-# annual compensation so exposure is expressed in units of annual comp,
-# alongside the flow measure (equity_share).
-#
-#   python 10_add_factset_ownership.py
+"""
+10_add_factset_ownership.py — merge FactSet Ownership Summary AND
+                              build CEO stock-holdings variables
+
+Inputs:
+    analysis_v2.csv                       (from step 07)
+    factset_ownership_summary_q4_2024.csv (FactSet Ownership Summary from WRDS)
+
+Output:
+    analysis_v3.csv                       (final analysis dataset)
+
+FactSet variables added (per firm):
+    mktcap           Market capitalization, USD millions
+    log_mktcap       ln(mktcap)  — main size control
+    io               Institutional ownership, share of market cap [0-1]
+    ibh_5pct         Blockholder ownership (5%+ stakes)
+    top5             Top-5 investor ownership
+    herf             Herfindahl ownership concentration
+    nbr_firms        Number of institutional owners
+    log_n_inst       ln(nbr_firms + 1)
+
+CEO holdings variables added (professor's suggested extension):
+    ceo_holdings_musd     Dollar value of CEO holdings in USD millions
+                          = (ceo_share_ownership / 100) * mktcap
+    log_ceo_holdings      ln(ceo_holdings_musd)
+    holdings_to_comp      CEO holdings expressed as multiples of annual comp
+                          = ceo_holdings_musd * 1000 / ceo_total_sec
+    log_holdings_to_comp  ln(holdings_to_comp)
+
+The "holdings_to_comp" measure follows the professor's suggestion to scale
+CEO holdings by average CEO compensation, expressing accumulated equity
+exposure in units of annual comp equivalent.
+
+Usage:
+    python 10_add_factset_ownership.py
+"""
 
 import numpy as np
 import pandas as pd
@@ -20,14 +44,8 @@ ANALYSIS_CSV = Path("analysis_v2.csv")
 FS_CSV = Path("factset_ownership_summary_q4_2024.csv")
 OUTPUT_CSV = Path("analysis_v3.csv")
 
-FS_COLS = ['ticker', 'mktcap', 'log_mktcap', 'io', 'ibh_5pct', 'top5',
-           'herf', 'nbr_firms', 'log_n_inst']
 
-HOLDINGS_COLS = ['ceo_holdings_musd', 'holdings_to_comp',
-                 'log_ceo_holdings', 'log_holdings_to_comp']
-
-
-def main():
+def main() -> None:
     for f in (ANALYSIS_CSV, FS_CSV):
         if not f.exists():
             print(f"ERROR: {f} not found in current folder.")
@@ -38,6 +56,7 @@ def main():
     print(f"Loaded {len(analysis)} firms from {ANALYSIS_CSV}")
     print(f"Loaded {len(fs)} rows from {FS_CSV}")
 
+    fs = fs.copy()
     fs['ticker'] = fs['ticker'].str.replace('-US', '', regex=False)
 
     if fs['ticker'].duplicated().any():
@@ -49,7 +68,12 @@ def main():
     fs['log_mktcap'] = np.log(fs['mktcap'].clip(lower=1))
     fs['log_n_inst'] = np.log(fs['nbr_firms'].fillna(0) + 1)
 
-    merged = analysis.merge(fs[FS_COLS], on='ticker', how='left', indicator=True)
+    fs_out = fs[[
+        'ticker', 'mktcap', 'log_mktcap', 'io', 'ibh_5pct', 'top5',
+        'herf', 'nbr_firms', 'log_n_inst',
+    ]]
+
+    merged = analysis.merge(fs_out, on='ticker', how='left', indicator=True)
     n_matched = (merged['_merge'] == 'both').sum()
     n_unmatched = (merged['_merge'] == 'left_only').sum()
     print(f"\nMerge results:")
@@ -59,12 +83,15 @@ def main():
     print(f"  Unmatched (no FactSet): {n_unmatched}")
     merged = merged.drop(columns=['_merge'])
 
-    # Units, which don't line up on their own:
-    #   ceo_share_ownership is percentage points (3.5 means 3.5%)
-    #   mktcap is USD millions
-    #   ceo_total_sec is USD thousands (ExecComp convention)
-    # so holdings = (pct / 100) * mktcap gives USD millions, and the *1000
-    # converts to thousands before dividing by comp.
+    # -----------------------------------------------------------------
+    # CEO holdings variables (professor's extension)
+    # -----------------------------------------------------------------
+    # ceo_share_ownership is in percentage points (e.g. 3.5 for 3.5%)
+    # mktcap is in USD millions
+    # ceo_total_sec is in USD thousands (ExecComp convention)
+    #
+    # Dollar value of holdings = (pct / 100) * mktcap  → USD millions
+    # Scaled by comp: multiply by 1000 to convert to thousands then divide by comp
     merged['ceo_holdings_musd'] = (
         (merged['ceo_share_ownership'] / 100) * merged['mktcap']
     )
@@ -80,13 +107,17 @@ def main():
 
     print(f"\nCEO holdings variables (matched firms with both mktcap and "
           f"ceo_share_ownership):")
-    for c in HOLDINGS_COLS:
+    for c in ['ceo_holdings_musd', 'holdings_to_comp',
+              'log_ceo_holdings', 'log_holdings_to_comp']:
         s = merged[c].dropna()
         if len(s) > 0:
             print(f"  {c:22s}  n={len(s):>4d}  mean={s.mean():>10.2f}  "
                   f"median={s.median():>10.2f}")
 
-    # main spec no longer requires firm_age
+    # -----------------------------------------------------------------
+    # Preview regression samples
+    # (main spec no longer requires firm_age)
+    # -----------------------------------------------------------------
     days = pd.to_numeric(
         merged['blackout_start_days_before_quarter_end'], errors='coerce')
     main_ok = (days.notna()

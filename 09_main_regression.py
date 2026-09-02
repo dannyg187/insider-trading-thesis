@@ -1,35 +1,22 @@
 #!/usr/bin/env python3
-"""
-09_main_regression.py — four regression tables
-
-Input:
-    analysis_v3.csv (from step 10)
-
-Outputs (./output/):
-    table3_main_regression.txt / .csv   — 3-column main spec
-    table4_robustness.txt / .csv        — governance controls, all-execs, +REIT
-    table5_alternative_outcomes.txt/csv — composite, hedging, pre-clearance
-    table6_stock_vs_flow.txt / .csv     — CEO holdings extension (NEW)
-
-Changes from previous version:
-    - Dropped log(firm_age) and firm_age_missing from all specifications.
-      Firm age had 46% imputed values in the regression sample, so per the
-      professor's guidance ("wenn es gut populated ist, kannst du log(age)
-      als control behalten sonst lass es lieber weg") we drop it.
-    - Added Table 6: CEO stock-vs-flow decomposition. Extension proposed by
-      the professor — measures CEO accumulated holdings and their scaled
-      version (holdings / annual comp), alongside the flow (equity_share).
-
-Table structure:
-  TABLE 3 — Main: does CEO equity share predict blackout timing?
-  TABLE 4 — Robustness: alternative specifications
-  TABLE 5 — Alternative outcomes: does the effect show up in other policy dims?
-  TABLE 6 — Stock vs. flow: does CEO accumulated holdings matter alongside
-            annual equity grants? [NEW]
-
-Usage:
-    python 09_main_regression.py
-"""
+# Four regression tables, all from analysis_v3.csv (step 10), written to
+# ./output/ as both .txt and .csv:
+#
+#   Table 3 — main: does CEO equity share predict blackout timing?
+#   Table 4 — robustness: governance controls, all-execs measure, +REIT
+#   Table 5 — alternative outcomes: composite, hedging, pre-clearance
+#   Table 6 — stock vs flow: accumulated CEO holdings alongside annual grants
+#
+# Changes from the previous version:
+#   - log(firm_age) and firm_age_missing dropped from every specification.
+#     Firm age was 46% imputed in the regression sample, and per the
+#     professor: "wenn es gut populated ist, kannst du log(age) als control
+#     behalten sonst lass es lieber weg".
+#   - Table 6 is new, also the professor's suggestion: decompose the CEO's
+#     accumulated holdings (stock) from the annual equity grant (flow), with
+#     a scaled version (holdings / annual comp).
+#
+#   python 09_main_regression.py
 
 import warnings
 from pathlib import Path
@@ -44,8 +31,51 @@ INPUT_CSV = Path("analysis_v3.csv")
 OUT_DIR = Path("output")
 OUT_DIR.mkdir(exist_ok=True)
 
+# no firm_age — see note at the top
+CONTROLS_MAIN = ['log_mktcap', 'leverage_w', 'roa_w']
+CONTROLS_AT = ['log_at', 'leverage_w', 'roa_w']
 
-def stars(p: float) -> str:
+BINARY_COLS = ['has_recurring_blackout', 'requires_preclearance',
+               'prohibits_hedging']
+
+TABLE3_ROWS = [
+    ('equity_share', 'Equity pay share (CEO)'),
+    ('log_mktcap', 'Log(market cap)'),
+    ('leverage_w', 'Leverage'),
+    ('roa_w', 'ROA'),
+]
+
+TABLE4_ROWS = [
+    ('equity_share', 'Equity pay share (CEO)'),
+    ('equity_share_pooled', 'Equity pay share (all execs)'),
+    ('io', 'Institutional ownership'),
+    ('ibh_5pct', 'Blockholder ownership'),
+    ('log_mktcap', 'Log(market cap)'),
+    ('log_at', 'Log(total assets)'),
+    ('leverage_w', 'Leverage'),
+    ('roa_w', 'ROA'),
+]
+
+TABLE5_ROWS = [
+    ('equity_share', 'Equity pay share (CEO)'),
+    ('equity_share_pooled', 'Equity pay share (all execs)'),
+    ('log_mktcap', 'Log(market cap)'),
+    ('leverage_w', 'Leverage'),
+    ('roa_w', 'ROA'),
+]
+
+TABLE6_ROWS = [
+    ('equity_share', 'Equity pay share (CEO)'),
+    ('ceo_share_ownership', 'CEO share ownership (%)'),
+    ('log_ceo_holdings', 'Log(CEO holdings, USD)'),
+    ('log_holdings_to_comp', 'Log(holdings / annual comp)'),
+    ('log_mktcap', 'Log(market cap)'),
+    ('leverage_w', 'Leverage'),
+    ('roa_w', 'ROA'),
+]
+
+
+def stars(p):
     if p < 0.01:
         return '***'
     if p < 0.05:
@@ -93,6 +123,23 @@ def drop_singleton_industries(m, min_firms=2):
     counts = m['sic_1digit'].value_counts()
     keep = counts[counts >= min_firms].index
     return m[m['sic_1digit'].isin(keep)].copy()
+
+
+def estimation_sample(df, columns):
+    return drop_singleton_industries(
+        df.dropna(subset=list(columns) + ['sic_1digit']))
+
+
+def fit(m, dv, regressors, industry_fe=True):
+    X = m[list(regressors)]
+    if industry_fe:
+        X = pd.concat([X, make_sic_dummies(m['sic_1digit'])], axis=1)
+    return run_ols(m[dv], sm.add_constant(X))
+
+
+def fit_spec(df, dv, regressors):
+    """Estimate on the sample where dv, the regressors and sic_1digit are all present."""
+    return fit(estimation_sample(df, [dv] + list(regressors)), dv, regressors)
 
 
 def build_table(rows, models, ind_fe_notes, sample_notes=None,
@@ -147,7 +194,14 @@ def save_table_csv(rows, models, path, col_labels=None):
     pd.DataFrame(csv_rows).to_csv(path, index=False)
 
 
-def main() -> None:
+def emit(name, table, rows, models, csv_col_labels=None):
+    print(table)
+    (OUT_DIR / f'{name}.txt').write_text(table)
+    save_table_csv(rows, models, OUT_DIR / f'{name}.csv',
+                   col_labels=csv_col_labels)
+
+
+def main():
     if not INPUT_CSV.exists():
         print(f"ERROR: {INPUT_CSV} not found.")
         return
@@ -155,232 +209,82 @@ def main() -> None:
     df = pd.read_csv(INPUT_CSV)
     df['days'] = pd.to_numeric(
         df['blackout_start_days_before_quarter_end'], errors='coerce')
-    for c in ['has_recurring_blackout', 'requires_preclearance',
-              'prohibits_hedging']:
+    for c in BINARY_COLS:
         df[c + '_i'] = df[c].astype(str).str.lower().eq('true').astype(int)
     df['restrict_score'] = (df['has_recurring_blackout_i']
                             + df['requires_preclearance_i']
                             + df['prohibits_hedging_i'])
 
-    # Main controls: NO firm_age (per professor's feedback)
-    controls_main = ['log_mktcap', 'leverage_w', 'roa_w']
-
-    # =================================================================
-    # TABLE 3 — Main
-    # =================================================================
     print("="*82)
     print("TABLE 3 — MAIN REGRESSION (blackout days)")
     print("="*82)
 
-    req = ['days', 'equity_share'] + controls_main + ['sic_1digit']
-    m3 = drop_singleton_industries(df.dropna(subset=req))
-    y = m3['days']
-    sic_d3 = make_sic_dummies(m3['sic_1digit'])
+    # all three columns share one sample so the N is comparable across them
+    m3 = estimation_sample(df, ['days', 'equity_share'] + CONTROLS_MAIN)
+    r3_1 = fit(m3, 'days', ['equity_share'], industry_fe=False)
+    r3_2 = fit(m3, 'days', ['equity_share'] + CONTROLS_MAIN, industry_fe=False)
+    r3_3 = fit(m3, 'days', ['equity_share'] + CONTROLS_MAIN)
 
-    X1 = sm.add_constant(m3[['equity_share']])
-    X2 = sm.add_constant(m3[['equity_share'] + controls_main])
-    X3 = sm.add_constant(
-        pd.concat([m3[['equity_share'] + controls_main], sic_d3], axis=1))
+    emit('table3_main_regression',
+         build_table(TABLE3_ROWS, [r3_1, r3_2, r3_3],
+                     ind_fe_notes=['No', 'No', 'Yes']),
+         TABLE3_ROWS, [r3_1, r3_2, r3_3])
 
-    r3_1 = run_ols(y, X1)
-    r3_2 = run_ols(y, X2)
-    r3_3 = run_ols(y, X3)
-
-    table3_rows = [
-        ('equity_share', 'Equity pay share (CEO)'),
-        ('log_mktcap', 'Log(market cap)'),
-        ('leverage_w', 'Leverage'),
-        ('roa_w', 'ROA'),
-    ]
-    table3 = build_table(table3_rows, [r3_1, r3_2, r3_3],
-                         ind_fe_notes=['No', 'No', 'Yes'])
-    print(table3)
-    (OUT_DIR / 'table3_main_regression.txt').write_text(table3)
-    save_table_csv(table3_rows, [r3_1, r3_2, r3_3],
-                   OUT_DIR / 'table3_main_regression.csv')
-
-    # =================================================================
-    # TABLE 4 — Robustness
-    # =================================================================
     print("\n\n" + "="*82)
     print("TABLE 4 — ROBUSTNESS")
     print("="*82)
 
     r4_1 = r3_3
+    r4_2 = fit_spec(df, 'days', ['equity_share'] + CONTROLS_MAIN + ['io'])
+    r4_3 = fit_spec(df, 'days', ['equity_share'] + CONTROLS_MAIN + ['ibh_5pct'])
+    r4_4 = fit_spec(df, 'days', ['equity_share_pooled'] + CONTROLS_MAIN)
+    r4_5 = fit_spec(df, 'days', ['equity_share'] + CONTROLS_AT)
+    models4 = [r4_1, r4_2, r4_3, r4_4, r4_5]
 
-    req = ['days', 'equity_share'] + controls_main + ['sic_1digit', 'io']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['equity_share'] + controls_main + ['io']], sd], axis=1))
-    r4_2 = run_ols(m['days'], X)
+    emit('table4_robustness',
+         build_table(TABLE4_ROWS, models4,
+                     ind_fe_notes=['Yes'] * 5,
+                     sample_notes=['no REIT', 'no REIT', 'no REIT',
+                                   'no REIT', '+REIT']),
+         TABLE4_ROWS, models4)
 
-    req = ['days', 'equity_share'] + controls_main + ['sic_1digit',
-                                                     'ibh_5pct']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['equity_share'] + controls_main + ['ibh_5pct']], sd],
-                  axis=1))
-    r4_3 = run_ols(m['days'], X)
-
-    req = ['days', 'equity_share_pooled'] + controls_main + ['sic_1digit']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['equity_share_pooled'] + controls_main], sd], axis=1))
-    r4_4 = run_ols(m['days'], X)
-
-    controls_at = ['log_at', 'leverage_w', 'roa_w']
-    req = ['days', 'equity_share'] + controls_at + ['sic_1digit']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['equity_share'] + controls_at], sd], axis=1))
-    r4_5 = run_ols(m['days'], X)
-
-    table4_rows = [
-        ('equity_share', 'Equity pay share (CEO)'),
-        ('equity_share_pooled', 'Equity pay share (all execs)'),
-        ('io', 'Institutional ownership'),
-        ('ibh_5pct', 'Blockholder ownership'),
-        ('log_mktcap', 'Log(market cap)'),
-        ('log_at', 'Log(total assets)'),
-        ('leverage_w', 'Leverage'),
-        ('roa_w', 'ROA'),
-    ]
-    table4 = build_table(
-        table4_rows, [r4_1, r4_2, r4_3, r4_4, r4_5],
-        ind_fe_notes=['Yes'] * 5,
-        sample_notes=['no REIT', 'no REIT', 'no REIT', 'no REIT', '+REIT'],
-    )
-    print(table4)
-    (OUT_DIR / 'table4_robustness.txt').write_text(table4)
-    save_table_csv(table4_rows, [r4_1, r4_2, r4_3, r4_4, r4_5],
-                   OUT_DIR / 'table4_robustness.csv')
-
-    # =================================================================
-    # TABLE 5 — Alternative outcomes
-    # =================================================================
     print("\n\n" + "="*82)
     print("TABLE 5 — ALTERNATIVE OUTCOMES")
     print("="*82)
 
-    req = ['equity_share'] + controls_main + ['sic_1digit', 'restrict_score']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['equity_share'] + controls_main], sd], axis=1))
-    r5_1 = run_ols(m['restrict_score'], X)
+    r5_1 = fit_spec(df, 'restrict_score', ['equity_share'] + CONTROLS_MAIN)
+    r5_2 = fit_spec(df, 'restrict_score', ['equity_share_pooled'] + CONTROLS_MAIN)
+    r5_3 = fit_spec(df, 'prohibits_hedging_i', ['equity_share'] + CONTROLS_MAIN)
+    r5_4 = fit_spec(df, 'requires_preclearance_i', ['equity_share'] + CONTROLS_MAIN)
+    models5 = [r5_1, r5_2, r5_3, r5_4]
 
-    req = ['equity_share_pooled'] + controls_main + ['sic_1digit',
-                                                    'restrict_score']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['equity_share_pooled'] + controls_main], sd], axis=1))
-    r5_2 = run_ols(m['restrict_score'], X)
+    emit('table5_alternative_outcomes',
+         build_table(TABLE5_ROWS, models5,
+                     ind_fe_notes=['Yes'] * 4,
+                     sample_notes=['Composite', 'Composite', 'Hedging',
+                                   'Pre-clear']),
+         TABLE5_ROWS, models5)
 
-    req = ['equity_share'] + controls_main + ['sic_1digit',
-                                              'prohibits_hedging_i']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['equity_share'] + controls_main], sd], axis=1))
-    r5_3 = run_ols(m['prohibits_hedging_i'], X)
-
-    req = ['equity_share'] + controls_main + ['sic_1digit',
-                                              'requires_preclearance_i']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['equity_share'] + controls_main], sd], axis=1))
-    r5_4 = run_ols(m['requires_preclearance_i'], X)
-
-    table5_rows = [
-        ('equity_share', 'Equity pay share (CEO)'),
-        ('equity_share_pooled', 'Equity pay share (all execs)'),
-        ('log_mktcap', 'Log(market cap)'),
-        ('leverage_w', 'Leverage'),
-        ('roa_w', 'ROA'),
-    ]
-    dv_notes = ['Composite', 'Composite', 'Hedging', 'Pre-clear']
-    table5 = build_table(
-        table5_rows, [r5_1, r5_2, r5_3, r5_4],
-        ind_fe_notes=['Yes'] * 4,
-        sample_notes=dv_notes,
-    )
-    print(table5)
-    (OUT_DIR / 'table5_alternative_outcomes.txt').write_text(table5)
-    save_table_csv(table5_rows, [r5_1, r5_2, r5_3, r5_4],
-                   OUT_DIR / 'table5_alternative_outcomes.csv')
-
-    # =================================================================
-    # TABLE 6 — Stock vs. flow decomposition (NEW, professor's suggestion)
-    # =================================================================
     print("\n\n" + "="*82)
     print("TABLE 6 — CEO HOLDINGS: STOCK vs FLOW")
     print("Dep. var: blackout_days. All columns use log(mktcap) as size,")
     print("industry FE, and same firm controls as main spec.")
     print("="*82)
 
-    # Column 1: CEO ownership (%) — raw
-    req = ['days', 'ceo_share_ownership'] + controls_main + ['sic_1digit']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['ceo_share_ownership'] + controls_main], sd], axis=1))
-    r6_1 = run_ols(m['days'], X)
+    r6_1 = fit_spec(df, 'days', ['ceo_share_ownership'] + CONTROLS_MAIN)
+    r6_2 = fit_spec(df, 'days', ['log_ceo_holdings'] + CONTROLS_MAIN)
+    r6_3 = fit_spec(df, 'days', ['log_holdings_to_comp'] + CONTROLS_MAIN)
+    r6_4 = fit_spec(df, 'days',
+                    ['equity_share', 'log_ceo_holdings'] + CONTROLS_MAIN)
+    models6 = [r6_1, r6_2, r6_3, r6_4]
 
-    # Column 2: log(CEO holdings dollar value)
-    req = ['days', 'log_ceo_holdings'] + controls_main + ['sic_1digit']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['log_ceo_holdings'] + controls_main], sd], axis=1))
-    r6_2 = run_ols(m['days'], X)
-
-    # Column 3: log(holdings / annual comp) — professor's scaled version
-    req = ['days', 'log_holdings_to_comp'] + controls_main + ['sic_1digit']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['log_holdings_to_comp'] + controls_main], sd], axis=1))
-    r6_3 = run_ols(m['days'], X)
-
-    # Column 4: horse race — flow (equity_share) + stock (log_ceo_holdings)
-    req = ['days', 'equity_share', 'log_ceo_holdings'] + controls_main + ['sic_1digit']
-    m = drop_singleton_industries(df.dropna(subset=req))
-    sd = make_sic_dummies(m['sic_1digit'])
-    X = sm.add_constant(
-        pd.concat([m[['equity_share', 'log_ceo_holdings'] + controls_main],
-                   sd], axis=1))
-    r6_4 = run_ols(m['days'], X)
-
-    table6_rows = [
-        ('equity_share', 'Equity pay share (CEO)'),
-        ('ceo_share_ownership', 'CEO share ownership (%)'),
-        ('log_ceo_holdings', 'Log(CEO holdings, USD)'),
-        ('log_holdings_to_comp', 'Log(holdings / annual comp)'),
-        ('log_mktcap', 'Log(market cap)'),
-        ('leverage_w', 'Leverage'),
-        ('roa_w', 'ROA'),
-    ]
-    table6 = build_table(
-        table6_rows,
-        [r6_1, r6_2, r6_3, r6_4],
-        ind_fe_notes=['Yes'] * 4,
-        col_labels=['(1) Raw %', '(2) log($)', '(3) log(/comp)',
-                    '(4) Horse race'],
-    )
-    print(table6)
-    (OUT_DIR / 'table6_stock_vs_flow.txt').write_text(table6)
-    save_table_csv(
-        table6_rows,
-        [r6_1, r6_2, r6_3, r6_4],
-        OUT_DIR / 'table6_stock_vs_flow.csv',
-        col_labels=['(1)', '(2)', '(3)', '(4)'],
-    )
+    emit('table6_stock_vs_flow',
+         build_table(TABLE6_ROWS, models6,
+                     ind_fe_notes=['Yes'] * 4,
+                     col_labels=['(1) Raw %', '(2) log($)', '(3) log(/comp)',
+                                 '(4) Horse race']),
+         TABLE6_ROWS, models6,
+         csv_col_labels=['(1)', '(2)', '(3)', '(4)'])
 
     print(f"\nAll tables saved to {OUT_DIR}/")
 
