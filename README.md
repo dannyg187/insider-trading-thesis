@@ -39,7 +39,7 @@ Scripts are numbered by dependency order rather than strictly by execution order
                                holdings variables → analysis_v3.csv
 08_descriptive_stats.py        Produce Table 1, correlation matrix, figures
 09_main_regression.py          Produce Tables 3, 4, 5, and 6
-10_add_factset_ownership.py    Adds ownership component
+10_add_factset_ownership.py    Merge FactSet Ownership Summary and holdings variables
 11_ols_diagnostics.py          OLS assumption tests and inference detail
 ```
 
@@ -60,3 +60,5 @@ The `output/` folder contains all tables and figures for the thesis:
 - `figure2_industry_breakdown.png` — sample composition bar chart
 - `figure3_scatter_main.png` — equity share vs blackout days
 - `figure4_binary_features.png` — prevalence of policy features
+- `table7_ols_diagnostics.txt` / `.csv` — VIF, Breusch-Pagan, White, Jarque-Bera, Ramsey RESET, Cook's distance, plus confidence intervals, joint significance tests, minimum detectable effect and IQR-scaled effect sizes
+- `figure5_residual_diagnostics.png` — 4-panel residual plots
